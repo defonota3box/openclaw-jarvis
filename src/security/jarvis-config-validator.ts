@@ -85,7 +85,8 @@ export function validateJarvisHardening(cfg: OpenClawConfig): void {
   // autoAllowSkills may appear in tools.exec (future schema) or agent overrides.
   // We check the top-level tools.exec path specified by the threat model.
   // Cast through unknown to handle schema evolution without breaking the type check.
-  const execCfg = cfg.tools?.exec as (typeof cfg.tools.exec & { autoAllowSkills?: boolean }) | undefined;
+  // Use unknown cast to avoid accessing cfg.tools.exec when cfg.tools may be undefined.
+  const execCfg = cfg.tools?.exec as ({ autoAllowSkills?: boolean } & object) | undefined;
   if (execCfg?.autoAllowSkills === true) {
     violations.push(
       "[H10] tools.exec.autoAllowSkills is true. This widens exec trust beyond the " +
