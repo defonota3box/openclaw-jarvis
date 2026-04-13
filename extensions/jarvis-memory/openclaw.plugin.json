@@ -1,0 +1,69 @@
+{
+  "id": "jarvis-memory",
+  "name": "Jarvis Memory",
+  "description": "Drop-in replacement for memory-lancedb that proxies all memory operations to the Jarvis sidecar memory service. The sidecar owns the embedding model, vector store (pgvector), and tiered episodic/semantic/procedural storage.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "memorySvcUrl": {
+        "type": "string",
+        "description": "Base URL of the Jarvis sidecar memory service. Defaults to http://memory-svc:3031 (the Phase 4 sidecar)."
+      },
+      "httpTimeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 30000,
+        "description": "HTTP timeout for memory service calls (default: 5000ms)."
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "description": "When true, every agent session injects retrieved memories into prompt context via before_agent_start. Default: true."
+      },
+      "autoCapture": {
+        "type": "boolean",
+        "description": "When true, every agent session captures user messages on agent_end. Default: true."
+      },
+      "autoRecallMinPromptLength": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Skip auto-recall if the user prompt is shorter than this (default: 5 chars)."
+      },
+      "autoRecallTopK": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "description": "Number of memories to retrieve for auto-recall (default: 5)."
+      },
+      "captureMaxChars": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 100000,
+        "description": "Truncate stored content beyond this many characters (default: 4000)."
+      },
+      "agentAllowlist": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional: only enable memory for specific agent IDs. Empty = all agents."
+      }
+    }
+  },
+  "uiHints": {
+    "memorySvcUrl": {
+      "label": "Memory Service URL",
+      "help": "Base URL of the sidecar memory service (Phase 4)."
+    },
+    "autoRecall": {
+      "label": "Auto-recall on session start",
+      "help": "Inject retrieved memories into the system prompt at the start of each agent session."
+    },
+    "autoCapture": {
+      "label": "Auto-capture user messages",
+      "help": "Store user messages to long-term memory at the end of each agent session."
+    },
+    "agentAllowlist": {
+      "label": "Agent allowlist",
+      "help": "If set, only these agent IDs use memory. Empty = all agents."
+    }
+  }
+}
