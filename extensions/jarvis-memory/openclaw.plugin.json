@@ -1,6 +1,7 @@
 {
   "id": "jarvis-memory",
   "name": "Jarvis Memory",
+  "kind": "memory",
   "description": "Drop-in replacement for memory-lancedb that proxies all memory operations to the Jarvis sidecar memory service. The sidecar owns the embedding model, vector store (pgvector), and tiered episodic/semantic/procedural storage.",
   "configSchema": {
     "type": "object",
