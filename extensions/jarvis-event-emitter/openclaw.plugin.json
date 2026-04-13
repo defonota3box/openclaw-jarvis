@@ -1,0 +1,65 @@
+{
+  "id": "jarvis-event-emitter",
+  "name": "Jarvis Event Emitter",
+  "description": "Emits OpenClaw lifecycle events (message_received, message_sent, before_agent_start, agent_end, before_tool_call) to stdout as JSONL and optionally POSTs to an HTTP sink for ingestion by the Jarvis cognition layer.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Master toggle. When false, no events are emitted."
+      },
+      "stdoutEnabled": {
+        "type": "boolean",
+        "description": "Emit each event as a JSONL line to stdout (default: true). Picked up by Docker logging."
+      },
+      "httpSinkUrl": {
+        "type": "string",
+        "description": "Optional HTTP POST target. Each event is POSTed as JSON. Failures logged but never throw (hook chain stays alive)."
+      },
+      "httpTimeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 5000,
+        "description": "HTTP POST timeout (default: 1000ms)."
+      },
+      "redactPayloadHash": {
+        "type": "boolean",
+        "description": "When true (default), message bodies and exec params are SHA-256 hashed before emission. When false, raw values are emitted (DO NOT use in production — for debugging only)."
+      },
+      "subscribeEvents": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "message_received",
+            "message_sent",
+            "before_agent_start",
+            "agent_end",
+            "before_tool_call"
+          ]
+        },
+        "description": "Which lifecycle events to subscribe to. Defaults to all five."
+      }
+    }
+  },
+  "uiHints": {
+    "enabled": {
+      "label": "Enabled",
+      "help": "Master toggle. Disable to stop emitting events without uninstalling the plugin."
+    },
+    "stdoutEnabled": {
+      "label": "Emit to stdout",
+      "help": "Write each event as a JSONL line to stdout (captured by Docker logs)."
+    },
+    "httpSinkUrl": {
+      "label": "HTTP Sink URL",
+      "help": "Optional HTTP POST endpoint that receives each event as JSON. Use http://cognition-svc:3030/events when sidecar is running."
+    },
+    "redactPayloadHash": {
+      "label": "Hash Payloads",
+      "help": "SHA-256 hash message bodies and exec params before emitting. Recommended ON in production."
+    }
+  }
+}
