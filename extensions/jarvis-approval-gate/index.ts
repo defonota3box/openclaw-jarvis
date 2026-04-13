@@ -159,19 +159,21 @@ export default definePluginEntry({
       const description =
         rule.description ??
         `Tool '${toolName}' (risk: ${rule.riskClass ?? "unspecified"}) ` +
-          `requested by agent ${ctx?.agentId ?? "?"} on channel ${ctx?.channelId ?? "?"}.\n` +
+          `requested by agent ${ctx?.agentId ?? "?"} (session ${ctx?.sessionKey ?? "?"}).\n` +
           `Params hash: ${paramsHash.slice(0, 12)}...`;
 
       // Notify policy service that an approval is pending. Fire-and-forget;
       // OpenClaw's built-in machinery handles the actual wait.
+      // PluginHookToolContext does NOT carry channelId — policy service can
+      // derive channel from sessionKey (e.g. "telegram:12345") if needed.
       void postPolicyEvent(cfg, "/approvals/pending", {
         requestId,
         toolName,
         riskClass: rule.riskClass,
         agentId: ctx?.agentId,
-        channelId: ctx?.channelId,
         sessionKey: ctx?.sessionKey,
         sessionId: ctx?.sessionId,
+        runId: ctx?.runId,
         paramsHash,
         approvalTimeoutMs: cfg.approvalTimeoutMs,
         timeoutBehavior: cfg.timeoutBehavior,
@@ -193,7 +195,7 @@ export default definePluginEntry({
               toolName,
               riskClass: rule.riskClass,
               agentId: ctx?.agentId,
-              channelId: ctx?.channelId,
+              sessionKey: ctx?.sessionKey,
               decision,
               ts: new Date().toISOString(),
             });
