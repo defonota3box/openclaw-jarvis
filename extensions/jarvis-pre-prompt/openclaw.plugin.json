@@ -1,0 +1,49 @@
+{
+  "id": "jarvis-pre-prompt",
+  "name": "Jarvis Pre-Prompt",
+  "description": "Injects self-model JSON and world-model snapshot into the system prompt, plus the H6 channel-trust instruction block. Memory retrieval is handled by jarvis-memory; this plugin does NOT duplicate memory recall.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "selfModelUrl": {
+        "type": "string",
+        "description": "Base URL of the self-model sidecar. Default: http://self-model-svc:3035."
+      },
+      "worldModelUrl": {
+        "type": "string",
+        "description": "Base URL of the world-model sidecar. Default: http://world-model-svc:3032."
+      },
+      "httpTimeoutMs": {
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 5000,
+        "description": "Per-sidecar timeout (default: 500ms). Hook proceeds with empty injection on timeout."
+      },
+      "injectSelfModel": {
+        "type": "boolean",
+        "description": "Inject self-model JSON into prependSystemContext (cacheable). Default: true."
+      },
+      "injectWorldModel": {
+        "type": "boolean",
+        "description": "Inject world-model snapshot into prependContext (per-turn). Default: true."
+      },
+      "injectChannelTrust": {
+        "type": "boolean",
+        "description": "Inject the H6 channel-trust instruction block into prependSystemContext. Default: true."
+      },
+      "channelTrustOverride": {
+        "type": "string",
+        "description": "Optional override for the channel-trust instruction text. If not set, uses the built-in H6 default."
+      }
+    }
+  },
+  "uiHints": {
+    "selfModelUrl": { "label": "Self-Model Service URL" },
+    "worldModelUrl": { "label": "World-Model Service URL" },
+    "httpTimeoutMs": { "label": "Sidecar Timeout (ms)" },
+    "injectSelfModel": { "label": "Inject self-model" },
+    "injectWorldModel": { "label": "Inject world-model snapshot" },
+    "injectChannelTrust": { "label": "Inject H6 channel-trust block" }
+  }
+}
