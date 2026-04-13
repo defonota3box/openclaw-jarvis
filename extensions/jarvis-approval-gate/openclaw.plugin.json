@@ -1,0 +1,81 @@
+{
+  "id": "jarvis-approval-gate",
+  "name": "Jarvis Approval Gate",
+  "description": "Routes tool calls matching configured names/patterns through the Jarvis policy service for explicit operator approval. Uses OpenClaw's built-in requireApproval mechanism on the before_tool_call hook (no custom queueing).",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "policySvcUrl": {
+        "type": "string",
+        "description": "Base URL of the Jarvis policy/approval service. Default: http://policy-svc:3036."
+      },
+      "httpTimeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 10000,
+        "description": "HTTP timeout for policy notifications (default: 2000ms)."
+      },
+      "approvalTimeoutMs": {
+        "type": "integer",
+        "minimum": 5000,
+        "maximum": 600000,
+        "description": "How long to wait for operator approval before timing out (default: 300000 = 5 min). Hard ceiling: 600000ms (10 min, MAX_PLUGIN_APPROVAL_TIMEOUT_MS)."
+      },
+      "timeoutBehavior": {
+        "type": "string",
+        "enum": ["allow", "deny"],
+        "description": "What to do on approval timeout (default: deny). Per Jarvis safety policy, default is deny — unattended approvals never auto-allow."
+      },
+      "rules": {
+        "type": "array",
+        "description": "Approval rules. Tool calls matching any rule require approval.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "toolName": {
+              "type": "string",
+              "description": "Exact tool name to match (e.g., 'run_command', 'send_message')."
+            },
+            "toolNamePattern": {
+              "type": "string",
+              "description": "Regex pattern (matched against toolName) — alternative to exact toolName."
+            },
+            "riskClass": {
+              "type": "string",
+              "enum": [
+                "data_read",
+                "data_write",
+                "external_action",
+                "destructive",
+                "financial",
+                "deploy"
+              ],
+              "description": "Risk class label sent to the policy service for routing/UX."
+            },
+            "title": {
+              "type": "string",
+              "description": "Human-readable title shown in the approval prompt."
+            },
+            "description": {
+              "type": "string",
+              "description": "Human-readable description shown in the approval prompt."
+            },
+            "severity": {
+              "type": "string",
+              "enum": ["info", "warning", "critical"],
+              "description": "Approval severity (default: warning)."
+            }
+          }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "policySvcUrl": { "label": "Policy Service URL" },
+    "approvalTimeoutMs": { "label": "Approval Timeout (ms)" },
+    "timeoutBehavior": { "label": "On Timeout", "help": "What to do if operator does not respond in time" },
+    "rules": { "label": "Approval Rules" }
+  }
+}
