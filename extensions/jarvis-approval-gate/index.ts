@@ -108,9 +108,12 @@ async function postPolicyEvent(
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), cfg.httpTimeoutMs);
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const token = process.env.JARVIS_POLICY_TOKEN;
+    if (token) headers["x-policy-token"] = token;
     await fetch(`${cfg.policySvcUrl}${endpoint}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
