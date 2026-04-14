@@ -254,6 +254,12 @@ RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw \
 
 ENV NODE_ENV=production
 
+# Install Claude Code CLI globally so the anthropic extension's method=cli
+# auth path works without post-start npm installs. Auth tokens are mounted
+# at runtime via /home/node/.claude/. Must run as root (before USER node).
+RUN npm install -g @anthropic-ai/claude-code && \
+    claude --version
+
 # Security hardening: Run as non-root user
 # The node:24-bookworm image includes a 'node' user (uid 1000)
 # This reduces the attack surface by preventing container escape via root privileges
