@@ -4,10 +4,17 @@ import {
   type OpenClawPluginApi,
 } from "openclaw/plugin-sdk/plugin-entry";
 
+// Phase 2a — policy-svc is the DECISION AUTHORITY.
+// We POST /approvals/request, then long-poll /approvals/<id>/wait until
+// the operator resolves via the PWA at policy-svc /ui (or it times out).
+// We never use OpenClaw's built-in requireApproval mechanism — by returning
+// { block: true, blockReason } we tell core to refuse the tool call cleanly.
+
 const DEFAULT_POLICY_SVC_URL = "http://policy-svc:3036";
-const DEFAULT_HTTP_TIMEOUT_MS = 2000;
-const DEFAULT_APPROVAL_TIMEOUT_MS = 300_000; // 5 minutes
-const MAX_APPROVAL_TIMEOUT_MS = 600_000; // hard ceiling matches OpenClaw's MAX_PLUGIN_APPROVAL_TIMEOUT_MS
+const DEFAULT_HTTP_TIMEOUT_MS = 5_000;
+const DEFAULT_APPROVAL_TIMEOUT_MS = 300_000; // 5 min
+const MAX_APPROVAL_TIMEOUT_MS = 600_000;
+const WAIT_CHUNK_SEC = 60; // long-poll chunk; must be ≤ MAX_WAIT_SEC in policy-svc
 
 type RiskClass =
   | "data_read"
@@ -29,7 +36,6 @@ type ApprovalRule = {
 };
 
 type CompiledRule = ApprovalRule & {
-  // Pre-compiled regex when toolNamePattern was supplied; matches() returns true if rule applies.
   matches: (toolName: string) => boolean;
 };
 
@@ -47,6 +53,14 @@ type ResolvedConfig = {
   approvalTimeoutMs: number;
   timeoutBehavior: "allow" | "deny";
   compiledRules: CompiledRule[];
+};
+
+type ApprovalRow = {
+  request_id: string;
+  status: "pending" | "approved" | "denied" | "expired";
+  decision?: string | null;
+  resolved_by?: string | null;
+  reason?: string | null;
 };
 
 function compileRule(rule: ApprovalRule): CompiledRule | undefined {
@@ -89,10 +103,7 @@ function resolveConfig(raw: unknown): ResolvedConfig {
   };
 }
 
-function findMatchingRule(
-  cfg: ResolvedConfig,
-  toolName: string,
-): CompiledRule | undefined {
+function findMatchingRule(cfg: ResolvedConfig, toolName: string): CompiledRule | undefined {
   return cfg.compiledRules.find((r) => r.matches(toolName));
 }
 
@@ -100,27 +111,62 @@ function sha256(input: string): string {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-async function postPolicyEvent(
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const token = process.env.JARVIS_POLICY_TOKEN;
+  if (token) headers["x-policy-token"] = token;
+  return headers;
+}
+
+async function policyPost(
   cfg: ResolvedConfig,
   endpoint: string,
   body: unknown,
-): Promise<void> {
+): Promise<Response | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), cfg.httpTimeoutMs);
   try {
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    const token = process.env.JARVIS_POLICY_TOKEN;
-    if (token) headers["x-policy-token"] = token;
-    await fetch(`${cfg.policySvcUrl}${endpoint}`, {
+    return await fetch(`${cfg.policySvcUrl}${endpoint}`, {
       method: "POST",
-      headers,
+      headers: authHeaders(),
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
   } catch (err) {
     process.stderr.write(
-      `[jarvis-approval-gate] policy service ${endpoint} failed: ${(err as Error)?.message ?? err}\n`,
+      `[jarvis-approval-gate] POST ${endpoint} failed: ${(err as Error)?.message ?? err}\n`,
     );
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function policyGetWait(
+  cfg: ResolvedConfig,
+  requestId: string,
+  timeoutSec: number,
+): Promise<ApprovalRow | null> {
+  // Allow the long-poll to consume up to (timeoutSec + 5s) of socket time
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), (timeoutSec + 5) * 1000);
+  try {
+    const r = await fetch(
+      `${cfg.policySvcUrl}/approvals/${encodeURIComponent(requestId)}/wait?timeout_sec=${timeoutSec}`,
+      { method: "GET", headers: authHeaders(), signal: ctrl.signal },
+    );
+    if (!r.ok) {
+      process.stderr.write(
+        `[jarvis-approval-gate] /wait returned ${r.status}\n`,
+      );
+      return null;
+    }
+    return (await r.json()) as ApprovalRow;
+  } catch (err) {
+    process.stderr.write(
+      `[jarvis-approval-gate] /wait failed: ${(err as Error)?.message ?? err}\n`,
+    );
+    return null;
   } finally {
     clearTimeout(t);
   }
@@ -130,7 +176,7 @@ export default definePluginEntry({
   id: "jarvis-approval-gate",
   name: "Jarvis Approval Gate",
   description:
-    "Gates configured tool calls behind operator approval via the Jarvis policy service.",
+    "Blocks gated tool calls until the operator approves via the Jarvis policy service / PWA.",
   register(api: OpenClawPluginApi) {
     const cfg = resolveConfig(api.pluginConfig);
 
@@ -153,58 +199,62 @@ export default definePluginEntry({
       if (!toolName) return undefined;
 
       const rule = findMatchingRule(cfg, toolName);
-      if (!rule) return undefined; // not gated
+      if (!rule) return undefined;
 
       const requestId = crypto.randomUUID();
       const paramsHash = sha256(JSON.stringify(ev.params ?? {}));
-      const title =
-        rule.title ?? `Approve tool call: ${toolName}`;
-      const description =
-        rule.description ??
-        `Tool '${toolName}' (risk: ${rule.riskClass ?? "unspecified"}) ` +
-          `requested by agent ${ctx?.agentId ?? "?"} (session ${ctx?.sessionKey ?? "?"}).\n` +
-          `Params hash: ${paramsHash.slice(0, 12)}...`;
 
-      // Notify policy service that an approval is pending. Fire-and-forget;
-      // OpenClaw's built-in machinery handles the actual wait.
-      // PluginHookToolContext does NOT carry channelId — policy service can
-      // derive channel from sessionKey (e.g. "telegram:12345") if needed.
-      void postPolicyEvent(cfg, "/approvals/pending", {
-        requestId,
-        toolName,
-        riskClass: rule.riskClass,
-        agentId: ctx?.agentId,
-        sessionKey: ctx?.sessionKey,
-        sessionId: ctx?.sessionId,
-        runId: ctx?.runId,
-        paramsHash,
-        approvalTimeoutMs: cfg.approvalTimeoutMs,
-        timeoutBehavior: cfg.timeoutBehavior,
-        ts: new Date().toISOString(),
+      // 1) Register pending
+      const ttlSec = Math.max(10, Math.floor(cfg.approvalTimeoutMs / 1000));
+      const created = await policyPost(cfg, "/approvals/request", {
+        request_id: requestId,
+        tool_name: toolName,
+        risk_class: rule.riskClass,
+        severity: rule.severity ?? "warning",
+        agent_id: ctx?.agentId,
+        session_key: ctx?.sessionKey,
+        session_id: ctx?.sessionId,
+        run_id: ctx?.runId,
+        params_hash: paramsHash,
+        ttl_sec: ttlSec,
       });
+      if (!created || !created.ok) {
+        // Service unreachable. Fail closed unless config says otherwise.
+        const decision = cfg.timeoutBehavior === "allow" ? undefined : {
+          block: true as const,
+          blockReason: "approval service unreachable",
+        };
+        return decision;
+      }
 
-      return {
-        requireApproval: {
-          title,
-          description,
-          severity: rule.severity ?? "warning",
-          timeoutMs: cfg.approvalTimeoutMs,
-          timeoutBehavior: cfg.timeoutBehavior,
-          pluginId: "jarvis-approval-gate",
-          onResolution: async (decision: unknown) => {
-            // Decision is one of: 'allow-once' | 'allow-always' | 'deny' | 'timeout' | 'cancelled'
-            void postPolicyEvent(cfg, "/approvals/resolved", {
-              requestId,
-              toolName,
-              riskClass: rule.riskClass,
-              agentId: ctx?.agentId,
-              sessionKey: ctx?.sessionKey,
-              decision,
-              ts: new Date().toISOString(),
-            });
-          },
-        },
-      };
+      // 2) Long-poll until terminal state or wall-clock exceeded
+      const deadline = Date.now() + cfg.approvalTimeoutMs;
+      while (Date.now() < deadline) {
+        const remainingSec = Math.max(
+          1,
+          Math.min(WAIT_CHUNK_SEC, Math.floor((deadline - Date.now()) / 1000)),
+        );
+        const row = await policyGetWait(cfg, requestId, remainingSec);
+        if (!row) {
+          // Network blip — back off briefly, then continue loop
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        if (row.status === "approved") return undefined;
+        if (row.status === "denied") {
+          const by = row.resolved_by ?? "operator";
+          const why = row.reason ? `: ${row.reason}` : "";
+          return { block: true, blockReason: `denied by ${by}${why}` };
+        }
+        if (row.status === "expired") {
+          return { block: true, blockReason: "approval expired" };
+        }
+        // status == pending → loop
+      }
+
+      // Outer wall-clock exceeded
+      if (cfg.timeoutBehavior === "allow") return undefined;
+      return { block: true, blockReason: "approval timeout" };
     });
   },
 });
