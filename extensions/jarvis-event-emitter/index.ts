@@ -89,9 +89,12 @@ async function postToSink(
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const token = process.env.JARVIS_AUDIT_TOKEN;
+    if (token) headers["x-audit-token"] = token;
     await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
       signal: ctrl.signal,
     });
